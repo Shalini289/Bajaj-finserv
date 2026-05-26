@@ -6,8 +6,8 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/tickets': 'http://localhost:5000',
-      '/health': 'http://localhost:5000',
+      '/tickets': 'http://localhost:5001',
+      '/health': 'http://localhost:5001',
     },
   },
 });

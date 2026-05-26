@@ -1,8 +1,8 @@
 /**
  * DeskFlow API smoke tests — run: node test-api.js [baseUrl]
- * Default: http://localhost:5000
+ * Default: http://localhost:5001
  */
-const BASE = process.argv[2] || 'http://localhost:5000';
+const BASE = process.argv[2] || 'http://localhost:5001';
 
 let passed = 0;
 let failed = 0;
