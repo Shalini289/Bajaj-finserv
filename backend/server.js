@@ -15,7 +15,6 @@ const allowedOrigins = (process.env.CLIENT_ORIGIN || process.env.FRONTEND_URL ||
   .map((s) => s.trim())
   .filter(Boolean);
 
-// local dev — localhost and 127.0.0.1 on common Vite ports
 const localDevOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
@@ -23,14 +22,28 @@ const localDevOrigins = [
   'http://127.0.0.1:5173',
 ];
 
+function originOk(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (localDevOrigins.includes(origin)) return true;
+  // Render + GitHub Pages (typical student deploys)
+  if (/\.onrender\.com$/i.test(origin)) return true;
+  if (/\.github\.io$/i.test(origin)) return true;
+  if (/\.vercel\.app$/i.test(origin)) return true;
+  if (/\.netlify\.app$/i.test(origin)) return true;
+  // no CLIENT_ORIGIN set — allow all (local default)
+  if (allowedOrigins.length === 0) return true;
+  return false;
+}
+
 app.use(
   cors({
     origin(origin, cb) {
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      if (localDevOrigins.includes(origin)) return cb(null, true);
-      if (allowedOrigins.length === 0) return cb(null, true);
-      cb(null, false);
+      if (originOk(origin)) {
+        cb(null, origin || true);
+      } else {
+        cb(null, false);
+      }
     },
     credentials: true,
   })
@@ -43,15 +56,13 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, name: 'deskflow-api' });
 });
 
-// optional: host the built react app from the same service (handy on Render)
 const staticDir = process.env.STATIC_DIR;
 if (staticDir) {
   const dist = path.resolve(staticDir);
   app.use(express.static(dist));
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/tickets')) {
-      res.sendFile(path.join(dist, 'index.html'));
-    }
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/tickets')) return next();
+    res.sendFile(path.join(dist, 'index.html'));
   });
 }
 

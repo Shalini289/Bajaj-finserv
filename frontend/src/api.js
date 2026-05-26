@@ -2,22 +2,35 @@ function apiBase() {
   const envUrl = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
   if (envUrl) return envUrl;
   if (import.meta.env.DEV) return 'http://localhost:5001';
+  // same host when UI is served from Express (STATIC_DIR on Render)
   return '';
 }
 
 const base = apiBase();
 
-async function callApi(url, opts) {
+function wait(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function callApi(url, opts, attempt = 1) {
+  const maxAttempts = 3;
   let res;
+
   try {
     res = await fetch(base + url, {
       headers: { 'Content-Type': 'application/json' },
       ...opts,
     });
   } catch (err) {
-    throw new Error(
-      'Cannot reach API at ' + base + '. Run: npm run dev:backend (and keep MongoDB running)'
-    );
+    // Render free tier may be waking up — retry a couple times
+    if (attempt < maxAttempts && base.startsWith('https://')) {
+      await wait(2000 * attempt);
+      return callApi(url, opts, attempt + 1);
+    }
+    const hint = base
+      ? 'API at ' + base + ' did not respond. If using Render free tier, wait ~1 min and refresh.'
+      : 'API not reachable. Check VITE_API_URL or serve UI from the same backend (STATIC_DIR).';
+    throw new Error(hint);
   }
 
   let payload = {};

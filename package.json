@@ -12,6 +12,6 @@
     "test:api": "node backend/test-api.js",
     "build": "npm run build --prefix frontend"
   },
-  "author": "Shalini Bhadouriya <shalinibhadouriya>",
+  "author": "Shalini Bhadouriya <shalinibhadouriya230308@acropolis.in>",
   "license": "MIT"
 }

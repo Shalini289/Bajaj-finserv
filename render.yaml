@@ -1,16 +1,17 @@
-# Deploy backend on Render — then deploy frontend separately with VITE_API_URL pointing here
+# Single Render service: API + React UI (no CORS issues)
 services:
   - type: web
-    name: deskflow-api
+    name: bajaj-finserv
     runtime: node
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: npm install --prefix backend && npm install --prefix frontend && npm run build --prefix frontend
+    startCommand: npm start --prefix backend
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: "20"
       - key: MONGODB_URI
         sync: false
+      - key: STATIC_DIR
+        value: ../frontend/dist
       - key: CLIENT_ORIGIN
         sync: false

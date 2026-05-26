@@ -96,7 +96,7 @@ export default function App() {
       <header className="app-header">
         <h1>DeskFlow</h1>
         <p className="app-header__sub">
-          Shalini Bhadouriya · shalinibhadouriya · Roll 0827RL231058
+          Shalini Bhadouriya · shalinibhadouriya230308@acropolis.in · Roll 0827RL231058
         </p>
       </header>
 

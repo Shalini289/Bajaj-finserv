@@ -1,29 +1,56 @@
-# Deployment checklist (evaluation)
+# Deploy DeskFlow on Render
 
-## Backend (Render / Railway)
+Your API: **https://bajaj-finserv-unne.onrender.com** (already live)
 
-1. Create a MongoDB Atlas cluster and copy the connection string.
-2. Deploy the `backend` folder.
-3. Set environment variables:
-   - `MONGODB_URI` — Atlas connection string
-   - `CLIENT_ORIGIN` — your live frontend URL, e.g. `https://deskflow-ui.onrender.com` (no trailing slash)
-4. Note the public API URL, e.g. `https://deskflow-api.onrender.com`
+## Option A — One service (recommended, fixes CORS)
 
-## Frontend (Vercel / Netlify / Render static)
+1. Push latest code to GitHub.
+2. On Render → your web service → **Settings**:
+   - **Build command:**  
+     `npm install --prefix backend && npm install --prefix frontend && npm run build --prefix frontend`
+   - **Start command:**  
+     `npm start --prefix backend`
+   - **Environment variables:**
+     - `MONGODB_URI` = your Atlas connection string
+     - `STATIC_DIR` = `../frontend/dist`
+3. **Redeploy** and open: `https://bajaj-finserv-unne.onrender.com`  
+   (UI + API same origin — no CORS)
 
-1. Set **build-time** env: `VITE_API_URL=https://deskflow-api.onrender.com` (your real backend URL — not localhost).
-2. Build command: `npm run build` (inside `frontend`).
-3. Publish the `frontend/dist` folder.
+For this option, build frontend with **empty** API URL (uses same host):
 
-## Same-origin option (single Render service)
+```env
+# frontend/.env.production — leave empty for same-origin
+VITE_API_URL=
+```
 
-1. Build the frontend locally: `npm run build --prefix frontend`
-2. Set `STATIC_DIR=../frontend/dist` on the backend service.
-3. Set `CLIENT_ORIGIN` to the same backend URL if you still open the UI from that host.
+## Option B — Separate frontend (GitHub Pages / second Render site)
 
-## Verify before submit
+**Backend** (Render) env:
 
-- Open browser devtools → Network: API calls go to your deployed backend, not `localhost`.
-- No CORS errors in the console.
-- `GET /tickets?priority=high&breached=true` returns only matching rows.
-- Invalid transition `open → resolved` returns HTTP 400 with a readable message.
+```env
+MONGODB_URI=mongodb+srv://...
+CLIENT_ORIGIN=https://YOUR-FRONTEND-URL
+```
+
+**Frontend** build env (must set before `npm run build`):
+
+```env
+VITE_API_URL=https://bajaj-finserv-unne.onrender.com
+```
+
+After changing CORS code, **redeploy the backend** on Render.
+
+## Render dashboard checklist
+
+| Variable | Value |
+|----------|--------|
+| `MONGODB_URI` | MongoDB Atlas URI |
+| `STATIC_DIR` | `../frontend/dist` (Option A only) |
+| `CLIENT_ORIGIN` | Your frontend URL if separate (Option B) |
+
+## Local vs production
+
+| | `frontend/.env` | `backend/.env` |
+|--|-----------------|----------------|
+| Local | `VITE_API_URL=http://localhost:5001` | `PORT=5001` |
+| Production build | `frontend/.env.production` | set on Render |
