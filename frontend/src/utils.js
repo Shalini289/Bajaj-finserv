@@ -1,29 +1,40 @@
-const STATUS_ORDER = ['open', 'in_progress', 'resolved', 'closed'];
+export const STATUSES = ['open', 'in_progress', 'resolved', 'closed'];
 
-const STATUS_LABELS = {
+export const statusTitle = {
   open: 'Open',
   in_progress: 'In Progress',
   resolved: 'Resolved',
   closed: 'Closed',
 };
 
-export function formatAge(minutes) {
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h < 24) return m > 0 ? `${h}h ${m}m` : `${h}h`;
-  const d = Math.floor(h / 24);
-  const rh = h % 24;
-  return rh > 0 ? `${d}d ${rh}h` : `${d}d`;
+export function showAge(mins) {
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm';
+  const hours = Math.floor(mins / 60);
+  const left = mins % 60;
+  if (hours < 24) {
+    return left ? hours + 'h ' + left + 'm' : hours + 'h';
+  }
+  const days = Math.floor(hours / 24);
+  const remH = hours % 24;
+  return remH ? days + 'd ' + remH + 'h' : days + 'd';
 }
 
-export function getAdjacentStatuses(status) {
-  const idx = STATUS_ORDER.indexOf(status);
-  const adjacent = [];
-  if (idx > 0) adjacent.push({ status: STATUS_ORDER[idx - 1], direction: 'back' });
-  if (idx < STATUS_ORDER.length - 1)
-    adjacent.push({ status: STATUS_ORDER[idx + 1], direction: 'forward' });
-  return adjacent;
+// only the next/previous column — nothing else (per assignment rules)
+export function neighbourStatuses(current) {
+  const i = STATUSES.indexOf(current);
+  const out = [];
+  if (i > 0) {
+    out.push({ status: STATUSES[i - 1], back: true });
+  }
+  if (i < STATUSES.length - 1) {
+    out.push({ status: STATUSES[i + 1], back: false });
+  }
+  return out;
 }
 
-export { STATUS_ORDER, STATUS_LABELS };
+export function ticketPassesFilters(ticket, filters) {
+  if (filters.priority && ticket.priority !== filters.priority) return false;
+  if (filters.breached && !ticket.slaBreached) return false;
+  return true;
+}

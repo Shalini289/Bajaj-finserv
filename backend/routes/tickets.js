@@ -2,94 +2,137 @@ const express = require('express');
 const validator = require('validator');
 const Ticket = require('../models/Ticket');
 const { PRIORITIES, STATUSES } = require('../models/Ticket');
-const { enrichTicket, canTransition, STATUS_ORDER } = require('../utils/sla');
+const { buildTicketResponse, allowedToMove, FLOW } = require('../utils/sla');
 
 const router = express.Router();
 
-function validateCreateBody(body) {
-  const errors = [];
-  if (!body.subject?.trim()) errors.push('subject is required');
-  if (!body.description?.trim()) errors.push('description is required');
-  if (!body.customerEmail?.trim()) {
-    errors.push('customerEmail is required');
-  } else if (!validator.isEmail(body.customerEmail.trim())) {
-    errors.push('customerEmail must be a valid email');
+function checkNewTicket(body) {
+  const problems = [];
+
+  if (!body.subject || !String(body.subject).trim()) {
+    problems.push('subject is required');
   }
+  if (!body.description || !String(body.description).trim()) {
+    problems.push('description is required');
+  }
+
+  const email = body.customerEmail ? String(body.customerEmail).trim() : '';
+  if (!email) {
+    problems.push('customerEmail is required');
+  } else if (!validator.isEmail(email)) {
+    problems.push('customerEmail must be a valid email address');
+  }
+
   if (!body.priority) {
-    errors.push('priority is required');
+    problems.push('priority is required');
   } else if (!PRIORITIES.includes(body.priority)) {
-    errors.push(`priority must be one of: ${PRIORITIES.join(', ')}`);
+    problems.push(
+      'priority must be low, medium, high, or urgent — got "' + body.priority + '"'
+    );
   }
-  return errors;
+
+  return problems;
 }
 
-router.get('/stats', async (_req, res) => {
+function badRequest(res, message) {
+  return res.status(400).json({ error: message });
+}
+
+// stats has to be before /:id style routes
+router.get('/stats', async (req, res) => {
   try {
-    const tickets = await Ticket.find();
-    const enriched = tickets.map(enrichTicket);
+    const all = await Ticket.find().lean();
+    const rows = all.map(buildTicketResponse);
 
-    const byStatus = Object.fromEntries(STATUSES.map((s) => [s, 0]));
-    const byPriority = Object.fromEntries(PRIORITIES.map((p) => [p, 0]));
+    const byStatus = {};
+    const byPriority = {};
+    STATUSES.forEach((s) => { byStatus[s] = 0; });
+    PRIORITIES.forEach((p) => { byPriority[p] = 0; });
+
     let breachedOpen = 0;
-
-    for (const t of enriched) {
-      byStatus[t.status] = (byStatus[t.status] || 0) + 1;
-      byPriority[t.priority] = (byPriority[t.priority] || 0) + 1;
-      if (
-        (t.status === 'open' || t.status === 'in_progress') &&
-        t.slaBreached
-      ) {
-        breachedOpen += 1;
+    for (let i = 0; i < rows.length; i++) {
+      const t = rows[i];
+      byStatus[t.status]++;
+      byPriority[t.priority]++;
+      if ((t.status === 'open' || t.status === 'in_progress') && t.slaBreached) {
+        breachedOpen++;
       }
     }
 
     res.json({ byStatus, byPriority, breachedOpen });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (e) {
+    console.error('stats error', e);
+    res.status(500).json({ error: 'Could not load stats right now' });
   }
 });
 
 router.get('/', async (req, res) => {
   try {
-    const filter = {};
-    if (req.query.status && STATUSES.includes(req.query.status)) {
-      filter.status = req.query.status;
-    }
-    if (req.query.priority && PRIORITIES.includes(req.query.priority)) {
-      filter.priority = req.query.priority;
-    }
+    const { status, priority, breached } = req.query;
+    const mongoFilter = {};
 
-    const tickets = await Ticket.find(filter).sort({ createdAt: -1 });
-    let enriched = tickets.map(enrichTicket);
-
-    if (req.query.breached === 'true') {
-      enriched = enriched.filter((t) => t.slaBreached);
+    if (status) {
+      if (!STATUSES.includes(status)) {
+        return badRequest(
+          res,
+          'Unknown status "' + status + '". Valid: ' + STATUSES.join(', ')
+        );
+      }
+      mongoFilter.status = status;
     }
 
-    res.json(enriched);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (priority) {
+      if (!PRIORITIES.includes(priority)) {
+        return badRequest(
+          res,
+          'Unknown priority "' + priority + '". Valid: ' + PRIORITIES.join(', ')
+        );
+      }
+      mongoFilter.priority = priority;
+    }
+
+    const raw = await Ticket.find(mongoFilter).sort({ createdAt: -1 });
+    let list = raw.map(buildTicketResponse);
+
+    // breached is computed server-side so we filter after attaching sla flags
+    if (breached === 'true') {
+      list = list.filter((t) => t.slaBreached);
+    }
+
+    res.json(list);
+  } catch (e) {
+    console.error('list tickets', e);
+    res.status(500).json({ error: 'Could not fetch tickets' });
   }
 });
 
 router.post('/', async (req, res) => {
   try {
-    const errors = validateCreateBody(req.body);
-    if (errors.length) {
-      return res.status(400).json({ error: 'Validation failed', details: errors });
+    const problems = checkNewTicket(req.body || {});
+    if (problems.length) {
+      return res.status(400).json({
+        error: problems[0],
+        details: problems,
+      });
     }
 
-    const ticket = await Ticket.create({
+    const saved = await Ticket.create({
       subject: req.body.subject.trim(),
       description: req.body.description.trim(),
       customerEmail: req.body.customerEmail.trim().toLowerCase(),
       priority: req.body.priority,
-      status: 'open',
     });
 
-    res.status(201).json(enrichTicket(ticket));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(201).json(buildTicketResponse(saved));
+  } catch (e) {
+    if (e.name === 'ValidationError') {
+      const msg = Object.values(e.errors)
+        .map((x) => x.message)
+        .join('; ');
+      return badRequest(res, msg);
+    }
+    console.error('create ticket', e);
+    res.status(500).json({ error: 'Could not save ticket' });
   }
 });
 
@@ -97,56 +140,62 @@ router.patch('/:id', async (req, res) => {
   try {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
-      return res.status(404).json({ error: 'Ticket not found' });
+      return res.status(404).json({ error: 'No ticket with that id' });
     }
 
-    const { status } = req.body;
-    if (status === undefined) {
-      return res.status(400).json({ error: 'status is required for update' });
-    }
-    if (!STATUSES.includes(status)) {
-      return res.status(400).json({
-        error: `status must be one of: ${STATUSES.join(', ')}`,
-      });
+    const nextStatus = req.body && req.body.status;
+    if (!nextStatus) {
+      return badRequest(res, 'Send a status in the request body to update a ticket');
     }
 
-    if (!canTransition(ticket.status, status)) {
-      return res.status(400).json({
-        error: `Invalid status transition from "${ticket.status}" to "${status}". Allowed flow: ${STATUS_ORDER.join(' → ')} (one step at a time).`,
-      });
+    if (!STATUSES.includes(nextStatus)) {
+      return badRequest(
+        res,
+        'Unknown status "' + nextStatus + '". Valid: ' + STATUSES.join(', ')
+      );
     }
 
-    const previousStatus = ticket.status;
-    ticket.status = status;
+    const was = ticket.status;
+    if (!allowedToMove(was, nextStatus)) {
+      return badRequest(
+        res,
+        'Cannot jump from "' + was + '" to "' + nextStatus + '". ' +
+          'Move one step along: ' + FLOW.join(' → ')
+      );
+    }
 
-    if (status === 'resolved' && previousStatus !== 'resolved') {
+    ticket.status = nextStatus;
+
+    if (nextStatus === 'resolved' && was !== 'resolved') {
       ticket.resolvedAt = new Date();
-    } else if (previousStatus === 'resolved' && status === 'in_progress') {
+    }
+    if (was === 'resolved' && nextStatus === 'in_progress') {
       ticket.resolvedAt = null;
     }
 
     await ticket.save();
-    res.json(enrichTicket(ticket));
-  } catch (err) {
-    if (err.name === 'CastError') {
-      return res.status(400).json({ error: 'Invalid ticket id' });
+    res.json(buildTicketResponse(ticket));
+  } catch (e) {
+    if (e.name === 'CastError') {
+      return badRequest(res, 'That ticket id does not look valid');
     }
-    res.status(500).json({ error: err.message });
+    console.error('patch ticket', e);
+    res.status(500).json({ error: 'Update failed' });
   }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
-    const ticket = await Ticket.findByIdAndDelete(req.params.id);
-    if (!ticket) {
-      return res.status(404).json({ error: 'Ticket not found' });
+    const removed = await Ticket.findByIdAndDelete(req.params.id);
+    if (!removed) {
+      return res.status(404).json({ error: 'No ticket with that id' });
     }
-    res.json({ message: 'Ticket deleted', ticket: enrichTicket(ticket) });
-  } catch (err) {
-    if (err.name === 'CastError') {
-      return res.status(400).json({ error: 'Invalid ticket id' });
+    res.json({ ok: true, ticket: buildTicketResponse(removed) });
+  } catch (e) {
+    if (e.name === 'CastError') {
+      return badRequest(res, 'That ticket id does not look valid');
     }
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Delete failed' });
   }
 });
 

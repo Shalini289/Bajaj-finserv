@@ -1,66 +1,58 @@
-const SLA_HOURS = {
+// response targets in hours — from the assignment brief
+const RESPONSE_TARGETS = {
   urgent: 1,
   high: 4,
   medium: 24,
   low: 72,
 };
 
-const STATUS_ORDER = ['open', 'in_progress', 'resolved', 'closed'];
+const FLOW = ['open', 'in_progress', 'resolved', 'closed'];
 
-function getTargetMinutes(priority) {
-  return (SLA_HOURS[priority] || 72) * 60;
+function targetMinutes(priority) {
+  const hrs = RESPONSE_TARGETS[priority];
+  return (hrs != null ? hrs : 72) * 60;
 }
 
-function enrichTicket(ticket) {
-  const doc = ticket.toObject ? ticket.toObject() : { ...ticket };
-  const created = new Date(doc.createdAt);
-  const isResolvedOrClosed =
-    doc.status === 'resolved' || doc.status === 'closed';
+function buildTicketResponse(ticket) {
+  const row = ticket.toObject ? ticket.toObject() : { ...ticket };
+  const opened = new Date(row.createdAt);
+  const stillActive = row.status === 'open' || row.status === 'in_progress';
 
-  const ageEnd =
-    isResolvedOrClosed && doc.resolvedAt
-      ? new Date(doc.resolvedAt)
-      : new Date();
-
-  const ageMinutes = Math.max(
-    0,
-    Math.floor((ageEnd - created) / 60000)
-  );
-
-  const targetMinutes = getTargetMinutes(doc.priority);
-  const isOpen = doc.status === 'open' || doc.status === 'in_progress';
-
-  let slaBreached = false;
-  if (isOpen) {
-    slaBreached = ageMinutes > targetMinutes;
-  } else if (doc.resolvedAt) {
-    const resolveMinutes = Math.floor(
-      (new Date(doc.resolvedAt) - created) / 60000
-    );
-    slaBreached = resolveMinutes > targetMinutes;
+  // once resolved, age is frozen at resolution time (not "now")
+  let ageCutoff = new Date();
+  if (row.status === 'resolved' && row.resolvedAt) {
+    ageCutoff = new Date(row.resolvedAt);
+  } else if (row.status === 'closed' && row.resolvedAt) {
+    ageCutoff = new Date(row.resolvedAt);
   }
 
-  return { ...doc, ageMinutes, slaBreached };
+  const ageMinutes = Math.max(0, Math.floor((ageCutoff - opened) / 60000));
+  const limit = targetMinutes(row.priority);
+
+  let slaBreached = false;
+  if (stillActive) {
+    slaBreached = ageMinutes > limit;
+  } else if (row.resolvedAt) {
+    const minsToResolve = Math.floor(
+      (new Date(row.resolvedAt) - opened) / 60000
+    );
+    slaBreached = minsToResolve > limit;
+  }
+
+  return { ...row, ageMinutes, slaBreached };
 }
 
-function canTransition(fromStatus, toStatus) {
-  const fromIdx = STATUS_ORDER.indexOf(fromStatus);
-  const toIdx = STATUS_ORDER.indexOf(toStatus);
-  if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return false;
-  return Math.abs(toIdx - fromIdx) === 1;
-}
-
-function isForwardTransition(fromStatus, toStatus) {
-  return (
-    STATUS_ORDER.indexOf(toStatus) === STATUS_ORDER.indexOf(fromStatus) + 1
-  );
+function allowedToMove(from, to) {
+  const a = FLOW.indexOf(from);
+  const b = FLOW.indexOf(to);
+  if (a < 0 || b < 0 || a === b) return false;
+  return Math.abs(b - a) === 1;
 }
 
 module.exports = {
-  SLA_HOURS,
-  STATUS_ORDER,
-  getTargetMinutes,
-  enrichTicket,
-  canTransition,
-  isForwardTransition,
+  RESPONSE_TARGETS,
+  FLOW,
+  targetMinutes,
+  buildTicketResponse,
+  allowedToMove,
 };

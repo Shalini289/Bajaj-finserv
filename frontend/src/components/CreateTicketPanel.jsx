@@ -1,96 +1,93 @@
 import { useState } from 'react';
 
-const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const levels = ['low', 'medium', 'high', 'urgent'];
 
-const emptyForm = {
+function looksLikeEmail(str) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str);
+}
+
+const blank = {
   subject: '',
   description: '',
   customerEmail: '',
   priority: 'medium',
 };
 
-export default function CreateTicketPanel({ onCreated }) {
-  const [form, setForm] = useState(emptyForm);
-  const [errors, setErrors] = useState({});
-  const [submitting, setSubmitting] = useState(false);
-  const [apiError, setApiError] = useState('');
+export default function CreateTicketPanel({ onSubmit }) {
+  const [form, setForm] = useState(blank);
+  const [fieldErr, setFieldErr] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [serverMsg, setServerMsg] = useState('');
 
-  function validate() {
-    const next = {};
-    if (!form.subject.trim()) next.subject = 'Subject is required';
-    if (!form.description.trim()) next.description = 'Description is required';
+  function validateForm() {
+    const err = {};
+    if (!form.subject.trim()) err.subject = 'Please add a subject';
+    if (!form.description.trim()) err.description = 'Description cannot be empty';
     if (!form.customerEmail.trim()) {
-      next.customerEmail = 'Email is required';
-    } else if (!EMAIL_RE.test(form.customerEmail.trim())) {
-      next.customerEmail = 'Enter a valid email address';
+      err.customerEmail = 'Customer email is needed';
+    } else if (!looksLikeEmail(form.customerEmail.trim())) {
+      err.customerEmail = 'That does not look like a valid email';
     }
-    if (!PRIORITIES.includes(form.priority)) {
-      next.priority = 'Select a valid priority';
-    }
-    setErrors(next);
-    return Object.keys(next).length === 0;
+    setFieldErr(err);
+    return Object.keys(err).length === 0;
   }
 
-  function handleChange(e) {
+  function onChange(e) {
     const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-    setErrors((err) => ({ ...err, [name]: '' }));
-    setApiError('');
+    setForm((prev) => ({ ...prev, [name]: value }));
+    setFieldErr((prev) => ({ ...prev, [name]: undefined }));
+    setServerMsg('');
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!validate()) return;
-    setSubmitting(true);
-    setApiError('');
+    if (!validateForm()) return;
+
+    setSaving(true);
+    setServerMsg('');
     try {
-      const ticket = await onCreated({
+      await onSubmit({
         subject: form.subject.trim(),
         description: form.description.trim(),
         customerEmail: form.customerEmail.trim(),
         priority: form.priority,
       });
-      setForm(emptyForm);
-      return ticket;
+      setForm(blank);
     } catch (err) {
-      setApiError(err.message);
+      setServerMsg(err.message);
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   }
 
   return (
     <aside className="create-panel">
-      <h2>New ticket</h2>
-      <p className="create-panel__hint">Customer submission</p>
+      <h2>Raise a ticket</h2>
+      <p className="create-panel__hint">Filled in by customer / agent</p>
+
       <form onSubmit={handleSubmit} noValidate>
         <label>
           Subject
           <input
             name="subject"
             value={form.subject}
-            onChange={handleChange}
-            className={errors.subject ? 'input--error' : ''}
-            placeholder="Brief summary"
+            onChange={onChange}
+            className={fieldErr.subject ? 'input--error' : ''}
           />
-          {errors.subject && (
-            <span className="field-error">{errors.subject}</span>
-          )}
+          {fieldErr.subject && <span className="field-error">{fieldErr.subject}</span>}
         </label>
 
         <label>
           Description
           <textarea
             name="description"
-            value={form.description}
-            onChange={handleChange}
             rows={4}
-            className={errors.description ? 'input--error' : ''}
-            placeholder="What is the issue?"
+            value={form.description}
+            onChange={onChange}
+            className={fieldErr.description ? 'input--error' : ''}
           />
-          {errors.description && (
-            <span className="field-error">{errors.description}</span>
+          {fieldErr.description && (
+            <span className="field-error">{fieldErr.description}</span>
           )}
         </label>
 
@@ -100,23 +97,18 @@ export default function CreateTicketPanel({ onCreated }) {
             name="customerEmail"
             type="email"
             value={form.customerEmail}
-            onChange={handleChange}
-            className={errors.customerEmail ? 'input--error' : ''}
-            placeholder="customer@example.com"
+            onChange={onChange}
+            className={fieldErr.customerEmail ? 'input--error' : ''}
           />
-          {errors.customerEmail && (
-            <span className="field-error">{errors.customerEmail}</span>
+          {fieldErr.customerEmail && (
+            <span className="field-error">{fieldErr.customerEmail}</span>
           )}
         </label>
 
         <label>
           Priority
-          <select
-            name="priority"
-            value={form.priority}
-            onChange={handleChange}
-          >
-            {PRIORITIES.map((p) => (
+          <select name="priority" value={form.priority} onChange={onChange}>
+            {levels.map((p) => (
               <option key={p} value={p}>
                 {p.charAt(0).toUpperCase() + p.slice(1)}
               </option>
@@ -124,10 +116,10 @@ export default function CreateTicketPanel({ onCreated }) {
           </select>
         </label>
 
-        {apiError && <p className="form-api-error">{apiError}</p>}
+        {serverMsg ? <p className="form-api-error">{serverMsg}</p> : null}
 
-        <button type="submit" className="btn btn--primary btn--block" disabled={submitting}>
-          {submitting ? 'Creating…' : 'Create ticket'}
+        <button type="submit" className="btn btn--primary btn--block" disabled={saving}>
+          {saving ? 'Saving…' : 'Submit ticket'}
         </button>
       </form>
     </aside>

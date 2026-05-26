@@ -1,146 +1,155 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api } from './api';
+import { useEffect, useState } from 'react';
+import {
+  fetchTickets,
+  fetchStats,
+  createTicket,
+  moveTicket,
+  removeTicket,
+} from './api';
+import { ticketPassesFilters } from './utils';
 import Board from './components/Board';
 import CreateTicketPanel from './components/CreateTicketPanel';
 import StatsStrip from './components/StatsStrip';
 import './App.css';
 
-const PRIORITIES = ['', 'low', 'medium', 'high', 'urgent'];
+const priorityOptions = ['low', 'medium', 'high', 'urgent'];
 
 export default function App() {
   const [tickets, setTickets] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const [breachedOnly, setBreachedOnly] = useState(false);
-  const [movingId, setMovingId] = useState(null);
+  const [bannerErr, setBannerErr] = useState('');
+  const [prioFilter, setPrioFilter] = useState('');
+  const [onlyBreached, setOnlyBreached] = useState(false);
+  const [busyId, setBusyId] = useState(null);
 
-  const loadData = useCallback(async () => {
-    setError('');
+  const filters = {
+    priority: prioFilter,
+    breached: onlyBreached,
+  };
+
+  async function reload() {
+    setBannerErr('');
     try {
-      const params = {};
-      if (priorityFilter) params.priority = priorityFilter;
-      if (breachedOnly) params.breached = true;
-      const [ticketList, statsData] = await Promise.all([
-        api.getTickets(params),
-        api.getStats(),
+      const [list, counts] = await Promise.all([
+        fetchTickets(filters),
+        fetchStats(),
       ]);
-      setTickets(ticketList);
-      setStats(statsData);
+      setTickets(list);
+      setStats(counts);
     } catch (err) {
-      setError(err.message);
+      setBannerErr(err.message);
     } finally {
       setLoading(false);
     }
-  }, [priorityFilter, breachedOnly]);
+  }
 
   useEffect(() => {
     setLoading(true);
-    loadData();
-  }, [loadData]);
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prioFilter, onlyBreached]);
 
-  async function handleMove(id, status) {
-    setMovingId(id);
-    setError('');
+  async function handleMove(id, newStatus) {
+    setBusyId(id);
+    setBannerErr('');
     try {
-      const updated = await api.updateStatus(id, status);
-      setTickets((prev) => prev.map((t) => (t._id === id ? updated : t)));
-      const statsData = await api.getStats();
-      setStats(statsData);
+      const updated = await moveTicket(id, newStatus);
+      setTickets((prev) => {
+        const rest = prev.filter((t) => t._id !== id);
+        if (ticketPassesFilters(updated, filters)) {
+          return [updated, ...rest];
+        }
+        return rest;
+      });
+      setStats(await fetchStats());
     } catch (err) {
-      setError(err.message);
+      setBannerErr(err.message);
     } finally {
-      setMovingId(null);
+      setBusyId(null);
     }
   }
 
   async function handleDelete(id) {
-    if (!window.confirm('Delete this ticket?')) return;
-    setError('');
+    if (!window.confirm('Remove this ticket permanently?')) return;
+    setBannerErr('');
     try {
-      await api.deleteTicket(id);
+      await removeTicket(id);
       setTickets((prev) => prev.filter((t) => t._id !== id));
-      const statsData = await api.getStats();
-      setStats(statsData);
+      setStats(await fetchStats());
     } catch (err) {
-      setError(err.message);
+      setBannerErr(err.message);
     }
   }
 
-  async function handleCreate(body) {
-    const created = await api.createTicket(body);
-    if (!priorityFilter || created.priority === priorityFilter) {
-      if (!breachedOnly || created.slaBreached) {
-        setTickets((prev) => [created, ...prev]);
-      }
+  async function handleCreate(payload) {
+    const fresh = await createTicket(payload);
+    if (ticketPassesFilters(fresh, filters)) {
+      setTickets((prev) => [fresh, ...prev]);
     }
-    const statsData = await api.getStats();
-    setStats(statsData);
-    return created;
+    setStats(await fetchStats());
+    return fresh;
   }
 
   return (
     <div className="app">
       <header className="app-header">
-        <div>
-          <h1>DeskFlow</h1>
-          <p className="app-header__sub">
-            Support ticket triage board · Shalini Bhadouriya · 0827RL231058
-          </p>
-        </div>
+        <h1>DeskFlow</h1>
+        <p className="app-header__sub">
+          Shalini Bhadouriya · shalinibhadouriya · Roll 0827RL231058
+        </p>
       </header>
 
       <StatsStrip stats={stats} loading={loading && !stats} />
 
       <div className="toolbar">
         <label className="toolbar__filter">
-          Priority
-          <select
-            value={priorityFilter}
-            onChange={(e) => setPriorityFilter(e.target.value)}
-          >
-            <option value="">All priorities</option>
-            {PRIORITIES.filter(Boolean).map((p) => (
+          Filter priority
+          <select value={prioFilter} onChange={(e) => setPrioFilter(e.target.value)}>
+            <option value="">All</option>
+            {priorityOptions.map((p) => (
               <option key={p} value={p}>
-                {p.charAt(0).toUpperCase() + p.slice(1)}
+                {p}
               </option>
             ))}
           </select>
         </label>
+
         <label className="toolbar__checkbox">
           <input
             type="checkbox"
-            checked={breachedOnly}
-            onChange={(e) => setBreachedOnly(e.target.checked)}
+            checked={onlyBreached}
+            onChange={(e) => setOnlyBreached(e.target.checked)}
           />
-          SLA breached only
+          Show SLA breached only
         </label>
-        <button type="button" className="btn btn--ghost" onClick={loadData}>
-          Refresh
+
+        <button type="button" className="btn btn--ghost" onClick={reload}>
+          Refresh board
         </button>
       </div>
 
-      {error && (
+      {bannerErr ? (
         <div className="banner banner--error" role="alert">
-          {error}
+          {bannerErr}
         </div>
-      )}
+      ) : null}
 
       <div className="main-layout">
         <div className="board-area">
           {loading ? (
-            <p className="loading-state">Loading tickets…</p>
+            <p className="loading-state">Pulling tickets from server…</p>
           ) : (
             <Board
               tickets={tickets}
               onMove={handleMove}
               onDelete={handleDelete}
-              movingId={movingId}
+              busyId={busyId}
             />
           )}
         </div>
-        <CreateTicketPanel onCreated={handleCreate} />
+
+        <CreateTicketPanel onSubmit={handleCreate} />
       </div>
     </div>
   );

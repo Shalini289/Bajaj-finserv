@@ -1,38 +1,32 @@
 import TicketCard from './TicketCard';
-import { STATUS_ORDER, STATUS_LABELS } from '../utils';
+import { STATUSES, statusTitle } from '../utils';
 
-export default function Board({
-  tickets,
-  onMove,
-  onDelete,
-  movingId,
-}) {
-  const byStatus = STATUS_ORDER.reduce((acc, s) => {
-    acc[s] = tickets.filter((t) => t.status === s);
-    return acc;
-  }, {});
+export default function Board({ tickets, onMove, onDelete, busyId }) {
+  const grouped = {};
+  STATUSES.forEach((s) => { grouped[s] = []; });
+  tickets.forEach((t) => {
+    if (grouped[t.status]) grouped[t.status].push(t);
+  });
 
   return (
     <div className="board">
-      {STATUS_ORDER.map((status) => (
-        <section key={status} className="board-column">
+      {STATUSES.map((col) => (
+        <section className="board-column" key={col}>
           <header className="board-column__header">
-            <h2>{STATUS_LABELS[status]}</h2>
-            <span className="board-column__count">
-              {byStatus[status].length}
-            </span>
+            <h2>{statusTitle[col]}</h2>
+            <span className="board-column__count">{grouped[col].length}</span>
           </header>
           <div className="board-column__cards">
-            {byStatus[status].length === 0 ? (
-              <p className="board-column__empty">No tickets</p>
+            {grouped[col].length === 0 ? (
+              <p className="board-column__empty">Nothing here</p>
             ) : (
-              byStatus[status].map((ticket) => (
+              grouped[col].map((t) => (
                 <TicketCard
-                  key={ticket._id}
-                  ticket={ticket}
+                  key={t._id}
+                  ticket={t}
                   onMove={onMove}
                   onDelete={onDelete}
-                  moving={movingId === ticket._id}
+                  busy={busyId === t._id}
                 />
               ))
             )}
